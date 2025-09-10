@@ -144,39 +144,86 @@ export class AIProcessor implements AIProvider {
     return (tokens / 1000) * 0.00014;
   }
 
+  private extractAndValidateJSON(response: string): string {
+    try {
+      // Remove any markdown code blocks
+      let cleaned = response.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+      
+      // Remove any text before the first { and after the last }
+      const firstBrace = cleaned.indexOf('{');
+      const lastBrace = cleaned.lastIndexOf('}');
+      
+      if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+        throw new Error('No valid JSON object found in response');
+      }
+      
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      
+      // Validate that it's parseable JSON
+      JSON.parse(cleaned);
+      
+      return cleaned;
+    } catch (error) {
+      logger.warn('Failed to extract valid JSON from AI response', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        responsePreview: response.substring(0, 200)
+      });
+      throw new Error(`Invalid JSON response: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   async analyzeSentiment(text: string): Promise<{
     sentiment: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
     confidence: number;
     reasoning: string;
   }> {
     const prompt = `
-Analyze the sentiment of the following cryptocurrency-related text. Focus on market implications and investor sentiment.
+You are a cryptocurrency sentiment analysis AI. Analyze the sentiment of the following text focusing on market implications and investor sentiment.
 
 Text: "${text}"
 
-Respond with a JSON object containing:
-- sentiment: "POSITIVE", "NEGATIVE", or "NEUTRAL"
-- confidence: number between 0 and 1
-- reasoning: brief explanation of the sentiment analysis
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no additional text. Just pure JSON.
 
-Be precise and focus on financial/market sentiment rather than general sentiment.
-`;
+Required JSON format:
+{
+  "sentiment": "POSITIVE|NEGATIVE|NEUTRAL",
+  "confidence": 0.85,
+  "reasoning": "Brief explanation of the sentiment analysis"
+}
+
+Rules:
+- sentiment must be exactly one of: POSITIVE, NEGATIVE, NEUTRAL
+- confidence must be a number between 0.0 and 1.0
+- reasoning must be a concise explanation (max 100 characters)
+- Focus on financial/market sentiment, not general sentiment
+- Response must be valid JSON only
+
+JSON response:`;
 
     try {
       const response = await this.analyze(prompt);
-      const parsed = JSON.parse(response.trim());
+      const cleanResponse = this.extractAndValidateJSON(response);
+      const parsed = JSON.parse(cleanResponse);
+      
+      // Validate required fields and types
+      if (!['POSITIVE', 'NEGATIVE', 'NEUTRAL'].includes(parsed.sentiment)) {
+        throw new Error('Invalid sentiment value');
+      }
       
       return {
-        sentiment: parsed.sentiment || 'NEUTRAL',
-        confidence: Math.max(0, Math.min(1, parsed.confidence || 0.5)),
-        reasoning: parsed.reasoning || 'No reasoning provided'
+        sentiment: parsed.sentiment,
+        confidence: Math.max(0, Math.min(1, typeof parsed.confidence === 'number' ? parsed.confidence : 0.5)),
+        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided'
       };
     } catch (error) {
-      logger.warn('Sentiment analysis failed', { error });
+      logger.warn('Sentiment analysis failed', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        textLength: text.length 
+      });
       return {
         sentiment: 'NEUTRAL',
-        confidence: 0.1,
-        reasoning: 'Analysis failed'
+        confidence: 0.3,
+        reasoning: 'Unable to analyze sentiment - please check data quality'
       };
     }
   }
@@ -189,40 +236,67 @@ Be precise and focus on financial/market sentiment rather than general sentiment
     reasoning: string;
   }> {
     const prompt = `
-Analyze the potential market impact of this cryptocurrency news:
+You are a cryptocurrency market impact analysis AI. Analyze the potential market impact of this news for traders and investors.
 
 Title: "${newsTitle}"
 Content: "${newsContent}"
 
-Respond with a JSON object containing:
-- impact: "HIGH", "MEDIUM", or "LOW" (market significance)
-- direction: "BULLISH", "BEARISH", or "NEUTRAL" (market direction)
-- timeframe: "SHORT_TERM", "MEDIUM_TERM", or "LONG_TERM" (impact duration)
-- affectedCoins: array of cryptocurrency symbols that might be affected
-- reasoning: detailed explanation of the analysis
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no additional text. Just pure JSON.
 
-Focus on actionable market intelligence for cryptocurrency traders and investors.
-`;
+Required JSON format:
+{
+  "impact": "HIGH|MEDIUM|LOW",
+  "direction": "BULLISH|BEARISH|NEUTRAL",
+  "timeframe": "SHORT_TERM|MEDIUM_TERM|LONG_TERM",
+  "affectedCoins": ["BTC", "ETH"],
+  "reasoning": "Detailed explanation of the analysis"
+}
+
+Rules:
+- impact must be exactly one of: HIGH, MEDIUM, LOW
+- direction must be exactly one of: BULLISH, BEARISH, NEUTRAL
+- timeframe must be exactly one of: SHORT_TERM, MEDIUM_TERM, LONG_TERM
+- affectedCoins must be an array of cryptocurrency symbols (e.g., ["BTC", "ETH", "SOL"])
+- reasoning must be a detailed explanation (max 200 characters)
+- Focus on actionable market intelligence
+
+JSON response:`;
 
     try {
       const response = await this.analyze(prompt);
-      const parsed = JSON.parse(response.trim());
+      const cleanResponse = this.extractAndValidateJSON(response);
+      const parsed = JSON.parse(cleanResponse);
+      
+      // Validate required fields and types
+      if (!['HIGH', 'MEDIUM', 'LOW'].includes(parsed.impact)) {
+        throw new Error('Invalid impact value');
+      }
+      if (!['BULLISH', 'BEARISH', 'NEUTRAL'].includes(parsed.direction)) {
+        throw new Error('Invalid direction value');
+      }
+      if (!['SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM'].includes(parsed.timeframe)) {
+        throw new Error('Invalid timeframe value');
+      }
       
       return {
-        impact: parsed.impact || 'MEDIUM',
-        direction: parsed.direction || 'NEUTRAL',
-        timeframe: parsed.timeframe || 'SHORT_TERM',
+        impact: parsed.impact,
+        direction: parsed.direction,
+        timeframe: parsed.timeframe,
         affectedCoins: Array.isArray(parsed.affectedCoins) ? parsed.affectedCoins : [],
-        reasoning: parsed.reasoning || 'No reasoning provided'
+        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided'
       };
     } catch (error) {
-      logger.warn('Impact analysis failed', { error });
+      logger.warn('Impact analysis failed', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        titleLength: newsTitle.length,
+        contentLength: newsContent.length 
+      });
       return {
         impact: 'MEDIUM',
         direction: 'NEUTRAL',
         timeframe: 'SHORT_TERM',
         affectedCoins: [],
-        reasoning: 'Analysis failed'
+        reasoning: 'Unable to analyze impact - please check news data quality'
       };
     }
   }
@@ -241,7 +315,7 @@ Focus on actionable market intelligence for cryptocurrency traders and investors
     ).join(', ');
 
     const prompt = `
-As a cryptocurrency market analyst, analyze the following market data and provide actionable insights:
+You are a cryptocurrency market analyst AI. Analyze the market data and provide actionable insights for traders and investors.
 
 Recent News:
 ${newsText}
@@ -249,29 +323,44 @@ ${newsText}
 Current Prices:
 ${priceContext}
 
-Provide a JSON response with:
-- keyInsights: array of 3-5 key market insights
-- marketOutlook: overall market outlook paragraph
-- recommendations: array of 3-5 actionable recommendations
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no additional text. Just pure JSON.
 
-Focus on practical trading and investment guidance based on the current market sentiment and price action.
-`;
+Required JSON format:
+{
+  "keyInsights": ["Insight 1", "Insight 2", "Insight 3"],
+  "marketOutlook": "Overall market outlook paragraph",
+  "recommendations": ["Recommendation 1", "Recommendation 2", "Recommendation 3"]
+}
+
+Rules:
+- keyInsights must be an array of 3-5 key market insights (each max 150 characters)
+- marketOutlook must be a comprehensive paragraph (max 300 characters)
+- recommendations must be an array of 3-5 actionable recommendations (each max 150 characters)
+- Focus on practical trading and investment guidance
+- Base analysis on current market sentiment and price action
+
+JSON response:`;
 
     try {
       const response = await this.analyze(prompt);
-      const parsed = JSON.parse(response.trim());
+      const cleanResponse = this.extractAndValidateJSON(response);
+      const parsed = JSON.parse(cleanResponse);
       
       return {
-        keyInsights: Array.isArray(parsed.keyInsights) ? parsed.keyInsights : ['Analysis unavailable'],
-        marketOutlook: parsed.marketOutlook || 'Market outlook analysis unavailable',
-        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : ['No recommendations available']
+        keyInsights: Array.isArray(parsed.keyInsights) ? parsed.keyInsights : ['Market analysis processing - please retry'],
+        marketOutlook: typeof parsed.marketOutlook === 'string' ? parsed.marketOutlook : 'Market outlook analysis in progress - please retry',
+        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : ['Recommendations being generated - please retry']
       };
     } catch (error) {
-      logger.warn('Insights generation failed', { error });
+      logger.warn('Insights generation failed', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        newsCount: newsItems.length,
+        priceDataCount: Object.keys(priceData).length
+      });
       return {
-        keyInsights: ['Market analysis temporarily unavailable'],
-        marketOutlook: 'Unable to generate market outlook at this time',
-        recommendations: ['Please try again later for market recommendations']
+        keyInsights: ['Market data processing temporarily unavailable - check data sources'],
+        marketOutlook: 'Unable to generate market outlook - verify news and price data availability',
+        recommendations: ['Analysis engine temporarily offline - please retry in a few minutes']
       };
     }
   }
@@ -286,34 +375,48 @@ Focus on practical trading and investment guidance based on the current market s
     ).join('\n');
 
     const prompt = `
-Analyze these cryptocurrency news headlines to identify trends and themes:
+You are a cryptocurrency trend analysis AI. Analyze news headlines to identify emerging trends, patterns and market themes.
 
 Headlines:
 ${newsText}
 
-Respond with a JSON object containing:
-- emergingTrends: array of emerging market trends identified
-- trendingCoins: array of cryptocurrency symbols getting significant attention
-- marketThemes: array of overarching market themes and narratives
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no additional text. Just pure JSON.
 
-Focus on identifying patterns and recurring themes in the news that could indicate market direction or investor sentiment.
-`;
+Required JSON format:
+{
+  "emergingTrends": ["Trend 1", "Trend 2", "Trend 3"],
+  "trendingCoins": ["BTC", "ETH", "SOL"],
+  "marketThemes": ["Theme 1", "Theme 2", "Theme 3"]
+}
+
+Rules:
+- emergingTrends must be an array of emerging market trends (each max 100 characters)
+- trendingCoins must be an array of cryptocurrency symbols getting attention (use standard symbols like BTC, ETH)
+- marketThemes must be an array of overarching market themes and narratives (each max 120 characters)
+- Focus on patterns and recurring themes that indicate market direction
+- Identify investor sentiment indicators from the headlines
+
+JSON response:`;
 
     try {
       const response = await this.analyze(prompt);
-      const parsed = JSON.parse(response.trim());
+      const cleanResponse = this.extractAndValidateJSON(response);
+      const parsed = JSON.parse(cleanResponse);
       
       return {
-        emergingTrends: Array.isArray(parsed.emergingTrends) ? parsed.emergingTrends : [],
-        trendingCoins: Array.isArray(parsed.trendingCoins) ? parsed.trendingCoins : [],
-        marketThemes: Array.isArray(parsed.marketThemes) ? parsed.marketThemes : []
+        emergingTrends: Array.isArray(parsed.emergingTrends) ? parsed.emergingTrends : ['Trend analysis in progress'],
+        trendingCoins: Array.isArray(parsed.trendingCoins) ? parsed.trendingCoins : ['BTC', 'ETH'],
+        marketThemes: Array.isArray(parsed.marketThemes) ? parsed.marketThemes : ['Market analysis pending']
       };
     } catch (error) {
-      logger.warn('Trend analysis failed', { error });
+      logger.warn('Trend analysis failed', { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        headlineCount: newsItems.length
+      });
       return {
-        emergingTrends: [],
-        trendingCoins: [],
-        marketThemes: []
+        emergingTrends: ['Trend analysis temporarily unavailable'],
+        trendingCoins: ['BTC', 'ETH'],
+        marketThemes: ['Market theme analysis offline - please retry']
       };
     }
   }

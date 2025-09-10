@@ -14,6 +14,14 @@ const getEnvVar = (key: string, defaultValue?: string): string => {
   return value;
 };
 
+const getSecureEnvVar = (key: string, minLength: number = 32): string => {
+  const value = process.env[key];
+  if (!value || value.length < minLength) {
+    throw new Error(`Environment variable ${key} must be at least ${minLength} characters long for security`);
+  }
+  return value;
+};
+
 const getBooleanEnv = (key: string, defaultValue: boolean = false): boolean => {
   const value = process.env[key];
   if (value === undefined) return defaultValue;
@@ -54,7 +62,9 @@ export const config: ServerConfig = {
     rateLimitWindowMs: getNumberEnv('RATE_LIMIT_WINDOW_MS', 60000),
     rateLimitMaxRequests: getNumberEnv('RATE_LIMIT_MAX_REQUESTS', 100),
     corsOrigins: getEnvVar('CORS_ORIGINS', '*'),
-    jwtSecret: getEnvVar('JWT_SECRET', 'default-jwt-secret-change-in-production'),
+    jwtSecret: process.env.NODE_ENV === 'production' 
+      ? getSecureEnvVar('JWT_SECRET', 32)
+      : getEnvVar('JWT_SECRET', 'dev-jwt-secret-not-for-production'),
   },
   
   database: {

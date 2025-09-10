@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // Web API polyfills for Node.js compatibility
+
 if (typeof globalThis.File === 'undefined') {
-  // @ts-ignore
-  globalThis.File = class File extends Blob {
+  (globalThis as any).File = class File extends Blob {
     public readonly name: string;
     public readonly lastModified: number;
     public readonly webkitRelativePath: string = '';
@@ -17,14 +17,13 @@ if (typeof globalThis.File === 'undefined') {
 }
 
 if (typeof globalThis.FormData === 'undefined') {
-  // @ts-ignore
-  globalThis.FormData = class FormData {
-    private data = new Map<string, any>();
-    append(name: string, value: any) { this.data.set(name, value); }
+  (globalThis as any).FormData = class FormData {
+    private data = new Map<string, string | File>();
+    append(name: string, value: string | File) { this.data.set(name, value); }
     get(name: string) { return this.data.get(name); }
     has(name: string) { return this.data.has(name); }
     delete(name: string) { this.data.delete(name); }
-    forEach(callback: (value: any, key: string) => void) {
+    forEach(callback: (value: string | File, key: string) => void) {
       this.data.forEach(callback);
     }
   };

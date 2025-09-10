@@ -49,7 +49,7 @@ export class AnalyzeCryptoSentimentTool {
   }
 
   async execute(
-    args: any, 
+    args: Record<string, unknown>, 
     progressCallback?: (progress: number, step: string) => void
   ): Promise<AnalysisResult> {
     const startTime = Date.now();

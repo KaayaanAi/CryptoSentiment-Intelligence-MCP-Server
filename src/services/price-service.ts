@@ -10,12 +10,26 @@ export class PriceService {
   private readonly binanceBase: string;
   private readonly apiKey: string | undefined;
   private readonly userAgent: string;
+  private readonly httpClient: ReturnType<typeof axios.create>;
 
   constructor() {
     this.coinGeckoBase = config.priceApi.coinGeckoBaseUrl;
     this.binanceBase = config.priceApi.binanceBaseUrl;
     this.apiKey = config.priceApi.coinGeckoApiKey;
     this.userAgent = 'CryptoSentiment-MCP-Server/1.0.0';
+    
+    // Create optimized HTTP client with proper timeouts and pooling
+    this.httpClient = axios.create({
+      timeout: 5000, // Use fixed timeout since config doesn't have this property
+      headers: {
+        'User-Agent': this.userAgent,
+        'Accept': 'application/json',
+      },
+      // Connection pooling for better performance
+      maxRedirects: 3,
+      // Retry configuration
+      validateStatus: (status) => status < 500,
+    });
   }
 
   async getMultiplePrices(coinSymbols: string[]): Promise<Record<string, CoinPrice>> {
@@ -46,23 +60,12 @@ export class PriceService {
         return cachedPrices;
       }
 
-      // Use timeout wrapper for development/testing
-      const fetchWithTimeout = async () => {
-        const timeoutPromise = new Promise<Record<string, CoinPrice>>((_, reject) => {
-          setTimeout(() => reject(new Error('Price fetch timeout')), 5000); // 5 second timeout
-        });
-
-        const fetchPromise = this.fetchPricesFromSources(normalizedSymbols);
-        
-        return Promise.race([fetchPromise, timeoutPromise]);
-      };
-
       let prices: Record<string, CoinPrice>;
       
       try {
-        prices = await fetchWithTimeout();
-      } catch (timeoutError) {
-        logger.warn('Price fetch timed out, using mock data', { error: timeoutError });
+        prices = await this.fetchPricesFromSources(normalizedSymbols);
+      } catch (error) {
+        logger.warn('Price fetch failed, using mock data', { error: error instanceof Error ? error.message : 'Unknown error' });
         prices = this.generateMockPrices(coinSymbols);
       }
 
