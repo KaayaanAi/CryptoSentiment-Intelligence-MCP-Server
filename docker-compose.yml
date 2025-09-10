@@ -1,0 +1,327 @@
+# CryptoSentiment Intelligence MCP Server - Production Docker Compose Configuration
+# Modern Docker Compose format (v3.8+ features without version attribute)
+
+services:
+  crypto-sentiment-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: crypto-sentiment-intelligence-mcp-server
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4004}:4004"
+    environment:
+      # Server Configuration
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-4004}
+      HOST: ${HOST:-0.0.0.0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      
+      # Protocol Configuration
+      ENABLE_STDIO: ${ENABLE_STDIO:-true}
+      ENABLE_HTTP_REST: ${ENABLE_HTTP_REST:-true}
+      ENABLE_HTTP_MCP: ${ENABLE_HTTP_MCP:-true}
+      ENABLE_WEBSOCKET: ${ENABLE_WEBSOCKET:-true}
+      
+      # Database Configuration
+      MONGODB_URL: ${MONGODB_URL:-mongodb://mongodb:27017/crypto_sentiment}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-crypto_sentiment_redis_2025_secure!}@redis:6379}
+      
+      # AI Provider Configuration
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-deepseek/deepseek-chat}
+      
+      # Price API Configuration
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      
+      # Security Configuration
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      
+      # Analysis Configuration
+      DEFAULT_ANALYSIS_DEPTH: ${DEFAULT_ANALYSIS_DEPTH:-standard}
+      DEFAULT_TIME_RANGE: ${DEFAULT_TIME_RANGE:-6h}
+      DEFAULT_MAX_NEWS_ITEMS: ${DEFAULT_MAX_NEWS_ITEMS:-15}
+    
+    volumes:
+      - crypto-sentiment-logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    
+    networks:
+      - kaayaan_default
+      - crypto-sentiment-internal
+    
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.crypto-sentiment.rule=Host(`crypto-sentiment.kaayaan.ai`)"
+      - "traefik.http.routers.crypto-sentiment.tls=true"
+      - "traefik.http.routers.crypto-sentiment.tls.certresolver=letsencrypt"
+      - "traefik.http.services.crypto-sentiment.loadbalancer.server.port=4004"
+      - "traefik.http.routers.crypto-sentiment.middlewares=secure-headers@docker"
+
+  # HTTP Server (for REST API and HTTP MCP)
+  crypto-sentiment-http:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: crypto-sentiment-http-server
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-4005}:4004"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4004
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      
+      # Enable only HTTP protocols
+      ENABLE_STDIO: false
+      ENABLE_HTTP_REST: true
+      ENABLE_HTTP_MCP: true
+      ENABLE_WEBSOCKET: true
+      
+      # Same environment variables as main service
+      MONGODB_URL: ${MONGODB_URL:-mongodb://mongodb:27017/crypto_sentiment}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:-crypto_sentiment_redis_2025_secure!}@redis:6379}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-deepseek/deepseek-chat}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      DEFAULT_ANALYSIS_DEPTH: ${DEFAULT_ANALYSIS_DEPTH:-standard}
+      DEFAULT_TIME_RANGE: ${DEFAULT_TIME_RANGE:-6h}
+      DEFAULT_MAX_NEWS_ITEMS: ${DEFAULT_MAX_NEWS_ITEMS:-15}
+    
+    volumes:
+      - crypto-sentiment-http-logs:/app/logs
+    
+    networks:
+      - kaayaan_default
+      - crypto-sentiment-internal
+    
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    
+    command: ["node", "build/http-server.js"]
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.crypto-sentiment-api.rule=Host(`crypto-sentiment-api.kaayaan.ai`)"
+      - "traefik.http.routers.crypto-sentiment-api.tls=true"
+      - "traefik.http.routers.crypto-sentiment-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.crypto-sentiment-api.loadbalancer.server.port=4004"
+      - "traefik.http.routers.crypto-sentiment-api.middlewares=secure-headers@docker,rate-limit@docker"
+
+  # Redis for caching - SECURED CONFIGURATION
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-sentiment-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-crypto_sentiment_redis_2025_secure!}
+    volumes:
+      - crypto-sentiment-redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - crypto-sentiment-internal
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-crypto_sentiment_redis_2025_secure!}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    security_opt:
+      - no-new-privileges:true
+
+  # MongoDB for data storage
+  mongodb:
+    image: mongo:7
+    container_name: crypto-sentiment-mongodb
+    restart: unless-stopped
+    ports:
+      - "${MONGODB_PORT:-27017}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-crypto_sentiment_2025}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-crypto_sentiment}
+    volumes:
+      - crypto-sentiment-mongodb-data:/data/db
+      - crypto-sentiment-mongodb-config:/data/configdb
+    networks:
+      - crypto-sentiment-internal
+    command: ["mongod", "--auth", "--quiet"]
+    healthcheck:
+      test: >
+        mongosh --quiet --eval '
+          try {
+            db.adminCommand({ping: 1});
+            print("MongoDB is ready");
+          } catch (e) {
+            print("MongoDB not ready: " + e);
+            quit(1);
+          }
+        '
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    security_opt:
+      - no-new-privileges:true
+
+  # Monitoring (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: crypto-sentiment-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    environment:
+      PROMETHEUS_RETENTION_TIME: ${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - crypto-sentiment-prometheus-data:/prometheus
+    networks:
+      - crypto-sentiment-internal
+      - kaayaan_default
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - monitoring
+
+  # Grafana (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: crypto-sentiment-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-crypto_sentiment_admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_USERS_ALLOW_SIGN_UP: ${GRAFANA_ALLOW_SIGNUP:-false}
+      GF_ANALYTICS_REPORTING_ENABLED: false
+      GF_ANALYTICS_CHECK_FOR_UPDATES: false
+    volumes:
+      - crypto-sentiment-grafana-data:/var/lib/grafana
+    networks:
+      - crypto-sentiment-internal
+      - kaayaan_default
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    profiles:
+      - monitoring
+
+volumes:
+  crypto-sentiment-logs:
+    driver: local
+  crypto-sentiment-http-logs:
+    driver: local
+  crypto-sentiment-redis-data:
+    driver: local
+  crypto-sentiment-mongodb-data:
+    driver: local
+  crypto-sentiment-mongodb-config:
+    driver: local
+  crypto-sentiment-prometheus-data:
+    driver: local
+  crypto-sentiment-grafana-data:
+    driver: local
+
+networks:
+  kaayaan_default:
+    external: true
+  crypto-sentiment-internal:
+    driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: br-crypto-sentiment

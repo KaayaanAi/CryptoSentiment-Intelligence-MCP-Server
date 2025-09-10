@@ -1,0 +1,78 @@
+{
+  "name": "crypto-sentiment-intelligence-mcp-server",
+  "version": "1.0.0",
+  "description": "Advanced MCP server for cryptocurrency sentiment analysis with quad-protocol support",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "crypto-sentiment-mcp": "./build/index.js"
+  },
+  "files": [
+    "build/",
+    "README.md",
+    "docs/"
+  ],
+  "scripts": {
+    "build": "tsc && chmod 755 build/index.js",
+    "watch": "tsc --watch",
+    "dev": "npm run build && node build/index.js",
+    "start": "node build/index.js",
+    "http-server": "node build/http-server.js",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "test": "npm run build && node build/test.js",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf build/ node_modules/.cache",
+    "docker:build": "docker build -t crypto-sentiment-mcp .",
+    "docker:run": "docker run -p 4004:4004 crypto-sentiment-mcp"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cryptocurrency",
+    "sentiment-analysis",
+    "ai",
+    "trading",
+    "blockchain",
+    "news-analysis",
+    "market-intelligence"
+  ],
+  "author": "Kaayaan AI Infrastructure",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "axios": "^1.6.2",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "mongodb": "^6.3.0",
+    "node-cron": "^3.0.3",
+    "openai": "^4.20.1",
+    "redis": "^4.6.12",
+    "rss-parser": "^3.13.0",
+    "winston": "^3.11.0",
+    "ws": "^8.14.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.24",
+    "@types/node-cron": "^3.0.11",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaayaan-ai/crypto-sentiment-intelligence-mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/kaayaan-ai/crypto-sentiment-intelligence-mcp-server/issues"
+  },
+  "homepage": "https://kaayaan.ai"
+}
